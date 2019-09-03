@@ -82,64 +82,11 @@ BEGIN
     RETURN wards;
   END $FN1$
   LANGUAGE 'plpgsql';
-
-  -- FUNCTION: fnGetWardPopSummary
-  RAISE NOTICE 'Creating Function: fn_GetWardPopSummary ...';
-  CREATE OR REPLACE FUNCTION fn_GetWardPopSummary (ageFrom INTEGER, ageTo INTEGER)
-  RETURNS TABLE (
-    global_id uuid,
-    ward_code VARCHAR,
-    source VARCHAR,
-    gender VARCHAR,
-    settlement_name VARCHAR,
-    popvalue INTEGER
-  ) AS $FN2$
-  BEGIN
-    IF ageFROM = 0 AND ageTO = 4 THEN
-      -- RAISE NOTICE 'GetWardPopSummary for 0-4';
-      RETURN QUERY SELECT
-          vp.global_id,
-          vp.ward_code,
-          vp.source::varchar,
-          vp.gender,
-          fe.name as settlement_name,
-          CAST((SUM(CASE WHEN vp.gender='M' THEN value ELSE 0 END) +
-                SUM(CASE WHEN vp.gender='F' THEN value ELSE 0 END)
-               ) AS INTEGER) as "popvalue"
-      FROM pop_estimate_adj vp
-      JOIN nigeria_master.settlement_areas fe
-        ON vp.global_id = fe.global_id
-      WHERE vp.age_group_to <= ageTo and vp.gender <> 'MF'
-      GROUP BY (vp.global_id, vp.featureidentifier, vp.ward_code, 
-                vp.source, vp.gender,settlement_name);
-    ELSE
-      -- RAISE NOTICE 'GetWardPopSummary for 5+';
-      RETURN QUERY SELECT
-          vp.global_id,
-          vp.ward_code,
-          vp.source:: VARCHAR,
-          vp.gender,
-          fe.name as settlement_name,
-          CAST((SUM(CASE WHEN vp.gender='M' THEN value ELSE 0 END) +
-                SUM(CASE WHEN vp.gender='F' THEN value ELSE 0 END)
-               ) AS INTEGER) as "popvalue"
-      FROM pop_estimate_adj vp
-      JOIN nigeria_master.settlement_areas fe
-        ON vp.global_id = fe.global_id
-      WHERE vp.age_group_from = ageFROM 
-      AND vp.gender <> 'MF'
-      AND vp.age_group_to = ageTo
-      GROUP BY (vp.global_id, vp.featureidentifier, vp.ward_code,
-                vp.source, vp.gender,settlement_name);
-    END IF;
-  END $FN2$
-  LANGUAGE 'plpgsql';
-
-   -- FUNCTON: getSettlementPopByZone
+-- FUNCTON: getSettlementPopByZone
   RAISE NOTICE 'Creating Function: fn_GetSettlementPopByZone ...';
   CREATE OR REPLACE FUNCTION fn_GetSettlementPopByZone(zoneName VARCHAR)
   RETURNS TABLE (
-    global_id uuid, settlement_name VARCHAR, ward_code VARCHAR,
+    global_id uuid, settlement_name VARCHAR, ward_code VARCHAR,gender VARCHAR,
     pop1_4 INTEGER,   pop5_9 INTEGER,   pop10_14 INTEGER, pop15_19 INTEGER,
     pop20_24 INTEGER, pop25_29 INTEGER, pop30_34 INTEGER, pop35_39 INTEGER,
     pop40_44 INTEGER, pop45_49 INTEGER, pop50_54 INTEGER, pop55_59 INTEGER,
@@ -148,7 +95,7 @@ BEGIN
   ) AS $FN3$
   BEGIN
     RETURN QUERY SELECT
-        fe.global_id, fe.name as settlement_name, fe.ward_code,
+        fe.global_id, fe.name as settlement_name, fe.ward_code, gender,
         pp.age1_4,   pp.age5_9,   pp.age10_14, pp.age15_19,
         pp.age20_24, pp.age25_29, pp.age30_34, pp.age35_39,
         pp.age40_44, pp.age45_49, pp.age50_54, pp.age55_59,
@@ -168,77 +115,31 @@ BEGIN
   BEGIN
     RAISE NOTICE 'Creating the vts_settement_pop table ...';
     CREATE TABLE IF NOT EXISTS vts_settlement_pop AS
-    SELECT
-        tbl1_4.global_id,
-        tbl1_4.settlement_name,
-        tbl1_4.ward_code,
-        tbl1_4.source,
-        tbl1_4.gender,
-        NOW() as "timestamp",
-        tbl1_4.popvalue as "pop1_4",
-        tbl5_9.popvalue as "pop5_9",
-        tbl10_14.popvalue as "pop10_14",
-        tbl15_19.popvalue as "pop15_19",
-        tbl20_24.popvalue as "pop20_24",
-        tbl25_29.popvalue as "pop25_29",
-        tbl30_34.popvalue as "pop30_34",
-        tbl35_39.popvalue as "pop35_39",
-        tbl40_44.popvalue as "pop40_44",
-        tbl45_49.popvalue as "pop45_49",
-        tbl50_54.popvalue as "pop50_54",
-        tbl55_59.popvalue as "pop55_59",
-        tbl60_64.popvalue as "pop60_64",
-        tbl65_69.popvalue as "pop65_69",
-        tbl70_74.popvalue as "pop70_74",
-        tbl75_100.popvalue as "pop75_100",
-        (COALESCE(tbl1_4.popvalue, 0.0)   + COALESCE(tbl5_9.popvalue, 0.0) +
-        COALESCE(tbl10_14.popvalue, 0.0) + COALESCE(tbl15_19.popvalue, 0.0) +
-        COALESCE(tbl20_24.popvalue, 0.0) + COALESCE(tbl25_29.popvalue, 0.0) +
-        COALESCE(tbl30_34.popvalue, 0.0) + COALESCE(tbl35_39.popvalue, 0.0) +
-        COALESCE(tbl40_44.popvalue, 0.0) + COALESCE(tbl45_49.popvalue, 0.0) +
-        COALESCE(tbl50_54.popvalue, 0.0) + COALESCE(tbl55_59.popvalue, 0.0) +
-        COALESCE(tbl60_64.popvalue, 0.0) + COALESCE(tbl65_69.popvalue, 0.0) +
-        COALESCE(tbl70_74.popvalue, 0.0) + COALESCE(tbl75_100.popvalue, 0.0)
-        ) as "pop_total"
-    FROM fn_GetWardPopSummary(0, 4) as tbl1_4
-    LEFT JOIN fn_GetWardPopSummary(5, 9) as tbl5_9
-      ON tbl1_4.global_id = tbl5_9.global_id
-
-    LEFT JOIN fn_GetWardPopSummary(10, 14) as tbl10_14
-      ON tbl5_9.global_id = tbl10_14.global_id
-    LEFT JOIN fn_GetWardPopSummary(15, 19) as tbl15_19
-      ON tbl10_14.global_id = tbl15_19.global_id
-
-    LEFT JOIN fn_GetWardPopSummary(20, 24) as tbl20_24
-      ON tbl15_19.global_id = tbl20_24.global_id
-    LEFT JOIN fn_GetWardPopSummary(25, 29) as tbl25_29
-      ON tbl20_24.global_id = tbl25_29.global_id
-
-    LEFT JOIN fn_GetWardPopSummary(30, 34) as tbl30_34
-      ON tbl25_29.global_id = tbl30_34.global_id
-    LEFT JOIN fn_GetWardPopSummary(35, 39) as tbl35_39
-      ON tbl30_34.global_id = tbl35_39.global_id
-
-    LEFT JOIN fn_GetWardPopSummary(40, 44) as tbl40_44
-      ON tbl35_39.global_id = tbl40_44.global_id
-    LEFT JOIN fn_GetWardPopSummary(45, 49) as tbl45_49
-      ON tbl40_44.global_id = tbl45_49.global_id
-
-    LEFT JOIN fn_GetWardPopSummary(50, 54) as tbl50_54
-      ON tbl45_49.global_id = tbl50_54.global_id
-    LEFT JOIN fn_GetWardPopSummary(55, 59) as tbl55_59
-      ON tbl50_54.global_id = tbl55_59.global_id
-
-    LEFT JOIN fn_GetWardPopSummary(60, 64) as tbl60_64
-      ON tbl55_59.global_id = tbl60_64.global_id
-    LEFT JOIN fn_GetWardPopSummary(65, 69) as tbl65_69
-      ON tbl60_64.global_id = tbl65_69.global_id
-
-    LEFT JOIN fn_GetWardPopSummary(70, 74) as tbl70_74
-      ON tbl65_69.global_id = tbl70_74.global_id
-    LEFT JOIN fn_GetWardPopSummary(75, 100) as tbl75_100
-      ON tbl70_74.global_id = tbl75_100.global_id;
-
+    select 
+		a.globalid as global_id,a.ward_code,a.source:: VARCHAR,a.gender,
+    	fe.name as settlement_name, 
+       max(a.value::INTEGER) filter (where a.age_group_to <= 4 ) as pop1_4,
+       max(a.value::INTEGER) filter (where a.age_group_to = 9) as pop5_9,
+       max(a.value::INTEGER) filter (where a.age_group_to = 14) as pop10_14,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 19) as pop15_19,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 24) as pop20_24,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 29) as pop25_29,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 34) as pop30_34, 
+	   max(a.value::INTEGER) filter (where a.age_group_to = 39) as pop35_39,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 44) as pop40_44,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 49) as pop45_49,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 54) as pop50_54,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 59) as pop55_59,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 64) as pop60_64,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 69) as pop65_69,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 74) as pop70_74,
+	   max(a.value::INTEGER) filter (where a.age_group_to = 100) as pop75_100,
+	   sum(a.value::INTEGER)as pop_total
+from pop_estimate_temp.pop_estimate_adj a
+	JOIN nigeria_master.settlement_areas fe
+        ON a.global_id = fe.global_id
+ where a.gender <> 'MF'
+ group by a.global_id, a.ward_code,a.source,a.gender,fe.name;
     RAISE NOTICE 'done!';
     RETURN 0;
   END $FN4$
@@ -255,6 +156,7 @@ BEGIN
     -- target_zones VARCHAR ARRAY := ARRAY['NE'];
     target_zones VARCHAR ARRAY := ARRAY['NE', 'NC', 'NW', 'SW', 'SE', 'SS'];
     colproj VARCHAR := '
+      gender,
       SUM(pop1_4) "pop1_4", SUM(pop5_9) "pop5_9", SUM(pop10_14) "pop10_14", SUM(pop15_19) "pop15_19",
       SUM(pop20_24) "pop20_24", SUM(pop25_29) "pop25_29", SUM(pop30_34) "pop30_34", SUM(pop35_39) "pop35_39",
       SUM(pop40_44) "pop40_44", SUM(pop45_49) "pop45_49", SUM(pop50_54) "pop50_54", SUM(pop55_59) "pop55_59",
@@ -291,7 +193,7 @@ BEGIN
           SELECT b.ward_code, b.ward_name, b.lga_code,%s,b.geom
           FROM %s as "pt" JOIN wards as "b"
             ON pt.ward_code = b.ward_code
-          GROUP BY b.ward_code,b.ward_name,b.lga_code,b.geom;
+          GROUP BY pt.gender, b.ward_code,b.ward_name,b.lga_code,b.geom;
       ', (table_name || '_pop_wards') , colproj, table_name || '_pop_settlement');
       RAISE NOTICE 'done!';
 
@@ -303,7 +205,7 @@ BEGIN
           %s, b.geom
           FROM %s as "pt" JOIN local_government_areas as "b"
             ON pt.lga_code = b.lga_code
-          GROUP BY b.lga_code,b.lga_name, b.state_code, b.geom;
+          GROUP BY pt.gender, b.lga_code,b.lga_name, b.state_code, b.geom;
       ', (table_name || '_pop_lga') , colproj, table_name || '_pop_wards');
       RAISE NOTICE 'done!';
 
@@ -315,7 +217,7 @@ BEGIN
           %s, b.geom
           FROM %s as "pt" JOIN states as "b"
             ON pt.state_code = b.state_code
-          GROUP BY b.state_code,b.state_name,b.geom;
+          GROUP BY pt.gender, b.state_code,b.state_name,b.geom;
       ', (table_name || '_pop_state') , colproj, table_name || '_pop_lga');
       RAISE NOTICE 'done!';
 
@@ -369,13 +271,12 @@ END $STEP3$
 -- AS SELECT * 
 --    FROM vts_pop.vts_populationestimates_july
 --    WHERE source='Worldpop / ORNL Adjusted';
---C:\Program Files\PostgreSQL\9.5\bin>psql -d nigeria_master -U postgres -h 10.11.52.58 -f 'C:\Users\fashoto.busayo\Desktop\pop\popps_update.sql'
+--C:\Program Files\PostgreSQL\9.5\bin>psql -d nigeria_master -U postgres -h 10.11.52.58 -f 'C:\Users\fashoto.busayo\Documents\popps\popps\scripts\popps.sql'
 
 -- ## script snippet: purger
--- SET search_path=vts_pop_temp;
--- DROP TABLE zones, zone_states, vts_settlement_pop CASCADE;
--- DROP FUNCTION fn_GetZoneWards(VARCHAR); 
--- DROP FUNCTION fn_GetWardPopSummary(INTEGER, INTEGER);
--- DROP FUNCTION fn_GetSettlementPopByZone(VARCHAR);
--- DROP FUNCTION fn_CreateSettlementPopTable();
--- DROP FUNCTION fn_CreatePopTablesPerZone();
+-- SET search_path=pop_estimate_temp;
+--DROP TABLE zones, zone_states, wards,local_government_areas,states CASCADE;
+--DROP FUNCTION fn_GetZoneWards(VARCHAR); 
+--DROP FUNCTION fn_GetSettlementPopByZone(VARCHAR);
+--DROP FUNCTION fn_CreateSettlementPopTable();
+--DROP FUNCTION fn_CreatePopTablesPerZone();
